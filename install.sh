@@ -45,7 +45,6 @@ cd daq-2.0.7
 
 echo "[INFO] Patching DAQ RPCAP issues..."
 
-# These files exist → correct patch locations
 sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
@@ -61,7 +60,6 @@ echo "[INFO] Fixing DAQ tokdefs.h build order..."
 
 cd sfbpf
 
-# Your DAQ contains grammar.y (NOT sf_grammar.y)
 bison -d grammar.y -o grammar.c
 
 if [ ! -f grammar.h ]; then
@@ -74,7 +72,6 @@ echo "[INFO] tokdefs.h created."
 
 cd ..
 
-# Sometimes DAQ needs autoreconf before configure
 autoreconf -fi || true
 
 # ------------------------------------------------------------
@@ -95,7 +92,7 @@ fi
 echo "[SUCCESS] DAQ installed."
 
 # ------------------------------------------------------------
-# Step 3 – Download Snort 2.9.20
+# Step 3 – Install Snort 2.9.20
 # ------------------------------------------------------------
 echo
 echo "[3/6] Downloading Snort 2.9.20..."
@@ -107,30 +104,41 @@ tar -xvzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
 # ------------------------------------------------------------
-# Step 4 – Patch Snort
+# Step 4 – Patch Snort (remove broken plugins)
 # ------------------------------------------------------------
 echo
 echo "[4/6] Applying Snort patches..."
 
 cd src
 
-# Remove broken tcpdump plugin
+echo "[INFO] Removing tcpdump plugin (files + Makefile references)..."
+
+# Delete files
 rm -f output-plugins/spo_log_tcpdump.c
 rm -f output-plugins/spo_log_tcpdump.h
+
+# Remove references from Makefiles
+sed -i '/spo_log_tcpdump/d' output-plugins/Makefile.am
+sed -i '/spo_log_tcpdump/d' output-plugins/Makefile.in
+sed -i '/spo_log_tcpdump/d' ../Makefile.in
+
+# Fix plugbase references
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
 
-# Remove NULL logging plugin
+# Remove NULL Logging plugin
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-# Disable RPCAP + Win32 SOCKET references
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
 cd ..
 
+echo "[INFO] Regenerating Snort autotools..."
+autoreconf -fi || true
+
 # ------------------------------------------------------------
-# Step 5 – Build Snort (OpenAppID DISABLED)
+# Step 5 – Build Snort (NO OpenAppID)
 # ------------------------------------------------------------
 echo
 echo "[5/6] Building Snort..."
@@ -143,10 +151,10 @@ echo "[INFO] Snort installed:"
 snort -V || { echo "[ERROR] Snort install failed!"; exit 1; }
 
 # ------------------------------------------------------------
-# Step 6 – Configure Snort + correlator
+# Step 6 – Configure Snort folders + correlator
 # ------------------------------------------------------------
 echo
-echo "[6/6] Setting up Snort folders and correlator..."
+echo "[6/6] Setting up Snort & correlator..."
 
 mkdir -p /etc/snort/rules
 mkdir -p /etc/snort/preproc_rules
@@ -161,9 +169,6 @@ id -u snort &>/dev/null || useradd snort -r -s /sbin/nologin
 chmod -R 5775 /etc/snort
 chmod -R 5775 /var/log/snort
 
-# ------------------------------------------------------------
-# Correlator installation
-# ------------------------------------------------------------
 echo "[INFO] Installing correlator..."
 
 mkdir -p /opt/correlator
