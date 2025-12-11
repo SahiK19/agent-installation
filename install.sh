@@ -72,26 +72,26 @@ cd /tmp
 tar -xvzf ${SNORT_TARBALL}
 cd snort-${SNORT_VERSION}
 
-echo "[INFO] Applying tcpdump plugin removal patch to fix SOCKET error..."
+echo "[INFO] Applying tcpdump plugin removal patch (full patch)..."
 
-# Remove broken source files
+# Remove broken plugin source files
 rm -f src/output-plugins/spo_log_tcpdump.c
 rm -f src/output-plugins/spo_log_tcpdump.h
 
-# Remove references from Makefile.am and Makefile.in
+# Remove references from autotools templates
 sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.am
 sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.in
 
-# Ensure no leftover .o targets
-sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.in
-sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.am
-
-# Fix rpc/rpc.h (tirpc dependency)
+# tirpc fix for missing rpc/rpc.h
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
 ./configure --enable-sourcefire
 
+# Remove references from generated Makefile
+sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile
+
+echo "[INFO] Building Snort..."
 make -j$(nproc)
 sudo make install
 sudo ldconfig
