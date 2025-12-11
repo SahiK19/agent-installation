@@ -118,4 +118,35 @@ sudo mkdir -p /usr/local/lib/snort_dynamicrules
 sudo mkdir -p /var/log/snort
 
 echo
-ec
+echo "[5/6] Copying Snort configuration..."
+sudo cp "$SNORT_DIR/snort.conf" /etc/snort/snort.conf
+
+if [ -d "$SNORT_DIR/rules" ]; then
+    sudo cp -r "$SNORT_DIR/rules/"* /etc/snort/rules/ || true
+fi
+
+sudo chown -R snort:snort /etc/snort
+sudo chmod -R 5775 /etc/snort
+echo "[OK] Snort configuration installed."
+echo
+
+echo "[6/6] Installing correlator service..."
+
+sudo cp "$CORR_DIR/correlate.py" /usr/local/bin/correlate.py
+sudo chmod +x /usr/local/bin/correlate.py
+
+sudo cp "$CORR_DIR/correlator.service" /etc/systemd/system/correlator.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable correlator.service
+sudo systemctl restart correlator.service
+
+echo
+echo "=== Verifying correlator.service status ==="
+sudo systemctl status correlator.service --no-pager || true
+
+echo
+echo "=============================================="
+echo "   ✅ Installation completed successfully."
+echo "=============================================="
+
