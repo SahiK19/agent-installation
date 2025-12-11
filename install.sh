@@ -52,7 +52,7 @@ sed -i 's/pcap_remoteact_accept//g'  ./configure || true
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
-# Fix build order
+# Fix build ordering
 cd sfbpf
 bison -d grammar.y -o grammar.c
 cp grammar.h tokdefs.h
@@ -104,7 +104,7 @@ sed -i 's/LogTcpdumpReset();//g' snort.c
 echo "[INFO] Removing NULL logging plugin..."
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-echo "[INFO] Removing leftover include statements..."
+echo "[INFO] Cleaning leftover includes..."
 sed -i '/spo_log_tcpdump.h/d' plugbase.c
 sed -i '/spo_log_tcpdump.h/d' snort.c
 
@@ -112,7 +112,7 @@ cd ..
 
 autoreconf -fi || true
 
-echo "[INFO] Removing tcpdump entries in all Makefiles..."
+echo "[INFO] Removing tcpdump references from Makefiles..."
 find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
 
 cd src
@@ -130,7 +130,7 @@ echo "[5/6] Building Snort..."
 make -j$(nproc)
 make install
 
-snort -V || { echo "[ERROR] Snort install FAILED!"; exit 1; }
+snort -V || { echo "[ERROR] Snort installation FAILED!"; exit 1; }
 
 # ------------------------------------------------------------
 # Step 6 – Setup Snort folders + Install correlator
@@ -138,18 +138,15 @@ snort -V || { echo "[ERROR] Snort install FAILED!"; exit 1; }
 echo
 echo "[6/6] Setting up Snort folders & correlator..."
 
-mkdir -p /etc/snort/rules
-mkdir -p /etc/snort/preproc_rules
-mkdir -p /var/log/snort
-mkdir -p /usr/local/lib/snort_dynamicrules
+mkdir -p /etc/snort/rules /etc/snort/preproc_rules /var/log/snort \
+         /usr/local/lib/snort_dynamicrules
 
 touch /etc/snort/rules/local.rules
 
 groupadd -f snort
 id -u snort &>/dev/null || useradd -r -s /sbin/nologin -g snort snort
 
-chmod -R 5775 /etc/snort
-chmod -R 5775 /var/log/snort
+chmod -R 5775 /etc/snort /var/log/snort
 
 # ------------------------------------------------------------
 # Install correlator
@@ -160,17 +157,22 @@ mkdir -p /opt/correlator
 CORR_URL="https://raw.githubusercontent.com/SahiK19/agent-installation/main/correlator"
 
 echo "[INFO] Downloading correlate.py..."
-if wget -q "$CORR_URL/correlate.py" -O "/opt/correlator/correlate.py"; then
-    echo " - correlate.py installed"
-else
-    echo "ERROR: Failed to download correlate.py"
-    exit 1
-fi
-
+wget -q "$CORR_URL/correlate.py" -O "/opt/correlator/correlate.py"
 chmod +x /opt/correlator/correlate.py
+
+echo "[INFO] Downloading correlator.service..."
+wget -q "$CORR_URL/correlator.service" -O "/etc/systemd/system/correlator.service"
 
 echo "[INFO] Installing Python dependencies..."
 pip3 install --break-system-packages requests
+
+echo "[INFO] Enabling correlator.service..."
+systemctl daemon-reload
+systemctl enable correlator.service
+systemctl restart correlator.service
+
+echo "[INFO] Service status:"
+systemctl status correlator.service --no-pager || true
 
 echo
 echo "=============================================="
