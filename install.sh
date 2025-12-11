@@ -43,31 +43,36 @@ wget https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz -O daq-2.0.7.tar.gz
 tar -xvzf daq-2.0.7.tar.gz
 cd daq-2.0.7
 
-echo "[INFO] Applying DAQ compatibility patches..."
+echo "[INFO] Patching DAQ RPCAP issues..."
 
-# Fix missing RPCAP symbols on modern libpcap
-sed -i 's/pcap_remoteact_accept_ex//g' ./config/acinclude.m4 || true
-sed -i 's/pcap_remoteact_accept//g'  ./config/acinclude.m4 || true
+# Remove RPCAP functions from aclocal.m4 + configure
+sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
+sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
+sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
+sed -i 's/pcap_remoteact_accept//g'  ./configure || true
 
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
 # ------------------------------------------------------------
-# FIX: DAQ tokdefs.h race condition
+# FIX: Generate grammar + tokdefs BEFORE compiling scanner.l
 # ------------------------------------------------------------
-echo "[INFO] Fixing DAQ tokdefs.h build issue..."
+echo "[INFO] Fixing DAQ tokdefs.h build sequence..."
 
 cd sfbpf
 
-# Force generation of grammar + tokdefs BEFORE flex
-bison -d sf_grammar.y -o sf_grammar.c
+# Correct grammar file (your directory contains grammar.y)
+bison -d grammar.y -o grammar.c
 
-if [ ! -f tokdefs.h ]; then
-    echo "[ERROR] tokdefs.h failed to generate!"
+# Bison generates grammar.h → rename to tokdefs.h
+if [ -f grammar.h ]; then
+    cp grammar.h tokdefs.h
+else
+    echo "[ERROR] grammar.h not generated!"
     exit 1
 fi
 
-echo "[INFO] tokdefs.h generated successfully."
+echo "[INFO] tokdefs.h successfully generated."
 
 cd ..
 
@@ -82,7 +87,7 @@ make install
 ldconfig
 
 if [ ! -f /usr/local/bin/daq-modules-config ]; then
-    echo "[ERROR] DAQ installation failed!"
+    echo "[ERROR] DAQ installation FAILED!"
     exit 1
 fi
 
@@ -117,14 +122,14 @@ sed -i 's/LogTcpdumpReset();//g' snort.c
 # Remove NULL logging plugin
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-# Disable RPCAP + Win32 socket references
+# Disable RPCAP + Win32 socket definitions
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
 cd ..
 
 # ------------------------------------------------------------
-# Step 5 – Build Snort (NO OpenAppID)
+# Step 5 – Build Snort (NO OPENAPPID)
 # ------------------------------------------------------------
 echo
 echo "[5/6] Building Snort..."
@@ -133,14 +138,14 @@ echo "[5/6] Building Snort..."
 make -j$(nproc)
 make install
 
-echo "[INFO] Snort installed successfully:"
-snort -V || { echo "[ERROR] Snort failed to install!"; exit 1; }
+echo "[INFO] Snort installed:"
+snort -V || { echo "[ERROR] Snort install failed!"; exit 1; }
 
 # ------------------------------------------------------------
-# Step 6 – Snort config + correlator
+# Step 6 – Configure Snort + correlator
 # ------------------------------------------------------------
 echo
-echo "[6/6] Setting up Snort directories..."
+echo "[6/6] Setting up Snort folders and correlator..."
 
 mkdir -p /etc/snort/rules
 mkdir -p /etc/snort/preproc_rules
@@ -158,7 +163,6 @@ chmod -R 5775 /var/log/snort
 echo "[INFO] Installing correlator..."
 
 mkdir -p /opt/correlator
-
 if [ -d "$HOME/agent-installation/correlator" ]; then
     cp "$HOME/agent-installation/correlator/"*.py /opt/correlator/
 fi
