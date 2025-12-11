@@ -30,6 +30,7 @@ apt install -y build-essential autoconf automake libtool pkg-config \
                libluajit-5.1-dev liblzma-dev libtirpc-dev wget curl git \
                python3 python3-pip flex bison
 
+
 # ------------------------------------------------------------
 # Step 2 – Install DAQ 2.0.7
 # ------------------------------------------------------------
@@ -43,7 +44,7 @@ cd daq-2.0.7
 
 # Patch RPCAP issues
 sed -i 's/pcap_remoteact_accept_ex//g' aclocal.m4 configure || true
-sed -i 's/pcap_remoteact_accept//g' aclocal.m4 configure || true
+sed -i 's/pcap_remoteact_accept//g'  aclocal.m4 configure || true
 
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
@@ -69,6 +70,7 @@ fi
 
 echo "[SUCCESS] DAQ installed."
 
+
 # ------------------------------------------------------------
 # Step 3 – Install Snort 2.9.20
 # ------------------------------------------------------------
@@ -80,6 +82,7 @@ wget -q https://www.snort.org/downloads/snort/snort-2.9.20.tar.gz -O snort-2.9.2
 tar -xzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
+
 # ------------------------------------------------------------
 # Step 4 – Patch Snort
 # ------------------------------------------------------------
@@ -90,7 +93,7 @@ cd src
 # Remove broken plugin
 rm -f output-plugins/spo_log_tcpdump.c output-plugins/spo_log_tcpdump.h
 
-# Remove function calls
+# Remove bad function calls
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
 
@@ -101,7 +104,6 @@ sed -i 's/LogNullSetup();//g' plugbase.c
 sed -i '/spo_log_tcpdump.h/d' plugbase.c snort.c
 
 cd ..
-
 autoreconf -fi || true
 
 # Remove Makefile entries
@@ -111,6 +113,7 @@ cd src
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 cd ..
+
 
 # ------------------------------------------------------------
 # Step 5 – Build Snort
@@ -123,34 +126,48 @@ make install
 
 snort -V || { echo "[ERROR] Snort installation FAILED!"; exit 1; }
 
+
 # ------------------------------------------------------------
-# Step 6 – Install Snort config + correlator
+# Step 6 – Install Snort config + ALL RULES
 # ------------------------------------------------------------
 echo "[6/6] Setting up Snort configuration..."
 
-# Clean any existing configs
 rm -f /etc/snort/snort.conf
 rm -rf /etc/snort/rules
 
-# Recreate folders
 mkdir -p /etc/snort/rules /etc/snort/preproc_rules /var/log/snort \
          /usr/local/lib/snort_dynamicrules
 
-# Copy YOUR snort.conf
-wget -q https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/snort.conf -O /etc/snort/snort.conf
+# Install snort.conf from repo
+wget -q https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/snort.conf \
+    -O /etc/snort/snort.conf
 echo " - Installed snort.conf"
 
-# Copy YOUR rules
-wget -q https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/rules/local.rules -O /etc/snort/rules/local.rules
-echo " - Installed rules folder"
+# ------------------------------------------------------------
+# Copy ALL rule files from GitHub
+# ------------------------------------------------------------
+echo "[INFO] Downloading ALL rule files from GitHub..."
+
+RULES_BASE_URL="https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/rules"
+
+# List all .rules files in your GitHub folder
+RULE_FILES=$(curl -s https://api.github.com/repos/SahiK19/agent-installation/contents/snort_installation/rules \
+    | grep "\"name\"" | grep ".rules" | cut -d '"' -f 4)
+
+for rule in $RULE_FILES; do
+    echo " - Installing rule: $rule"
+    wget -q "$RULES_BASE_URL/$rule" -O "/etc/snort/rules/$rule"
+done
+
 
 groupadd -f snort
 id -u snort &>/dev/null || useradd -r -s /sbin/nologin -g snort snort
 
 chmod -R 5775 /etc/snort /var/log/snort
 
+
 # ------------------------------------------------------------
-# Install correlator
+# Install correlator + systemd
 # ------------------------------------------------------------
 echo "[INFO] Installing correlator..."
 
@@ -171,6 +188,7 @@ systemctl restart correlator.service
 echo "[INFO] Correlator service status:"
 systemctl status correlator.service --no-pager || true
 
+
 echo "=============================================="
-echo " INSTALLATION COMPLETE – SNORT + DAQ + CORRELATOR"
+echo " INSTALLATION COMPLETE – SNORT + DAQ + FULL RULESET + CORRELATOR"
 echo "=============================================="
