@@ -53,7 +53,6 @@ sed -i 's/pcap_remoteact_accept//g'  ./configure || true
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
-# Fix DAQ grammar
 echo "[INFO] Fixing DAQ tokdefs.h build order..."
 
 cd sfbpf
@@ -89,7 +88,7 @@ tar -xvzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
 # ------------------------------------------------------------
-# Step 4 – Patch Snort (remove broken plugins)
+# Step 4 – Patch Snort (FULL FIX)
 # ------------------------------------------------------------
 echo
 echo "[4/6] Applying Snort patches..."
@@ -107,18 +106,27 @@ echo "[INFO] Removing tcpdump calls..."
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
 
+echo "[INFO] Removing include statements..."
+sed -i '/spo_log_tcpdump.h/d' plugbase.c
+sed -i '/spo_log_tcpdump.h/d' snort.c
+sed -i '/spo_log_tcpdump.h/d' output-plugins/*.c 2>/dev/null || true
+
 cd ..
 
 echo "[INFO] Regenerating Snort build system..."
 autoreconf -fi || true
 
-echo "[INFO] Removing tcpdump references from ALL Makefiles..."
+echo "[INFO] Removing tcpdump references from Makefiles..."
 find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
 
+# Patch AGAIN after autoreconf — REQUIRED
 cd src
+sed -i '/spo_log_tcpdump.h/d' plugbase.c
+sed -i '/spo_log_tcpdump.h/d' snort.c
+cd ..
+
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
-cd ..
 
 # ------------------------------------------------------------
 # Step 5 – Build Snort
