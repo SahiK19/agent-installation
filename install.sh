@@ -9,7 +9,7 @@ echo "================================================="
 # Function: Safe APT Update (Ubuntu 24.04 / WSL fix)
 # -----------------------------------------------
 safe_apt_update() {
-    echo "[1/8] Updating system packages (safe mode)..."
+    echo "[1/9] Updating system packages (safe mode)..."
 
     set +e
     apt update -y
@@ -24,10 +24,10 @@ safe_apt_update() {
 }
 
 # -----------------------------------------------
-# Function: Install Dependencies (with Debian 13 fix)
+# Function: Install Dependencies (with Debian 13 PCRE fix)
 # -----------------------------------------------
 install_dependencies() {
-    echo "[2/8] Installing system dependencies..."
+    echo "[2/9] Installing system dependencies..."
 
     apt install -y \
         build-essential \
@@ -40,7 +40,7 @@ install_dependencies() {
     OS_VERSION=$(grep -oP '(?<=VERSION_ID=").*(?=")' /etc/os-release | cut -d'.' -f1)
 
     if [[ "$OS_VERSION" == "13" ]]; then
-        echo "[INFO] Debian 13 detected. Installing PCRE 8.45 from source..."
+        echo "[INFO] Debian 13 detected — installing PCRE 8.45 from source..."
 
         cd /tmp
         wget https://downloads.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz -O pcre-8.45.tar.gz
@@ -62,10 +62,33 @@ install_dependencies() {
 }
 
 # -----------------------------------------------
-# Function: Install Snort 2.9.20 from Source
+# Function: Install DAQ 2.0.7 (REQUIRED FOR SNORT)
+# -----------------------------------------------
+install_daq() {
+    echo "[3/9] Installing DAQ 2.0.7..."
+
+    DAQ_VERSION="2.0.7"
+    DAQ_TARBALL="daq-${DAQ_VERSION}.tar.gz"
+
+    cd /tmp
+    wget https://www.snort.org/downloads/snort/${DAQ_TARBALL} -O ${DAQ_TARBALL}
+
+    tar -xvzf ${DAQ_TARBALL}
+    cd daq-${DAQ_VERSION}
+
+    ./configure
+    make -j$(nproc)
+    make install
+    ldconfig
+
+    echo "[OK] DAQ ${DAQ_VERSION} installed."
+}
+
+# -----------------------------------------------
+# Function: Install Snort 2.9.20
 # -----------------------------------------------
 install_snort() {
-    echo "[3/8] Installing Snort 2.9.20 from source..."
+    echo "[4/9] Installing Snort 2.9.20 from source..."
 
     SNORT_VERSION="2.9.20"
     SNORT_TARBALL="snort-${SNORT_VERSION}.tar.gz"
@@ -90,7 +113,7 @@ install_snort() {
 # Function: Deploy Snort Configuration
 # -----------------------------------------------
 deploy_snort_conf() {
-    echo "[4/8] Deploying Snort configuration..."
+    echo "[5/9] Deploying Snort configuration..."
 
     mkdir -p /etc/snort/rules
     mkdir -p /var/log/snort
@@ -105,7 +128,7 @@ deploy_snort_conf() {
 # Function: Install Correlator Script
 # -----------------------------------------------
 install_correlator() {
-    echo "[5/8] Installing Python correlator..."
+    echo "[6/9] Installing Python correlator..."
 
     cp ./correlator/correlate.py /usr/local/bin/correlate.py
     chmod +x /usr/local/bin/correlate.py
@@ -116,10 +139,10 @@ install_correlator() {
 }
 
 # -----------------------------------------------
-# Function: Configure correlator.service
+# Function: Install correlator.service
 # -----------------------------------------------
 install_correlator_service() {
-    echo "[6/8] Creating correlator service..."
+    echo "[7/9] Creating correlator systemd service..."
 
 cat <<EOF >/etc/systemd/system/correlator.service
 [Unit]
@@ -138,6 +161,7 @@ EOF
 
     systemctl daemon-reload
     systemctl enable correlator.service
+
     echo "[OK] correlator.service installed."
 }
 
@@ -145,17 +169,17 @@ EOF
 # Function: Verify Installation
 # -----------------------------------------------
 verify_installation() {
-    echo "[7/8] Verifying installation..."
+    echo "[8/9] Verifying installation..."
 
-    snort -V || echo "[WARN] Snort version check failed (WSL limitation expected)."
+    snort -V || echo "[WARN] Snort -V failed (expected in WSL)."
     python3 --version
 }
 
 # -----------------------------------------------
-# Function: Done
+# Function: Finish
 # -----------------------------------------------
 finish() {
-    echo "[8/8] Installation Completed Successfully!"
+    echo "[9/9] Installation Completed Successfully!"
     echo "Reboot recommended before running Snort."
 }
 
@@ -164,9 +188,11 @@ finish() {
 # -----------------------------------------------
 safe_apt_update
 install_dependencies
+install_daq
 install_snort
 deploy_snort_conf
 install_correlator
 install_correlator_service
 verify_installation
 finish
+
