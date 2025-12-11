@@ -39,15 +39,15 @@ echo "[2/6] Installing DAQ 2.0.7..."
 
 cd /tmp
 rm -rf daq-2.0.7*
-wget https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz -O daq-2.0.7.tar.gz
-tar -xvzf daq-2.0.7.tar.gz
+wget -q https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz -O daq-2.0.7.tar.gz
+tar -xzf daq-2.0.7.tar.gz
 cd daq-2.0.7
 
 echo "[INFO] Patching DAQ RPCAP issues..."
 sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
-sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
+sed -i 's/pcap_remoteact_accept//g' ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
-sed -i 's/pcap_remoteact_accept//g'  ./configure || true
+sed -i 's/pcap_remoteact_accept//g' ./configure || true
 
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
@@ -81,8 +81,8 @@ echo "[3/6] Downloading Snort 2.9.20..."
 
 cd /tmp
 rm -rf snort-2.9.20*
-wget https://www.snort.org/downloads/snort/snort-2.9.20.tar.gz -O snort-2.9.20.tar.gz
-tar -xvzf snort-2.9.20.tar.gz
+wget -q https://www.snort.org/downloads/snort/snort-2.9.20.tar.gz -O snort-2.9.20.tar.gz
+tar -xzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
 # ------------------------------------------------------------
@@ -97,12 +97,12 @@ echo "[INFO] Removing broken tcpdump plugin..."
 rm -f output-plugins/spo_log_tcpdump.c
 rm -f output-plugins/spo_log_tcpdump.h
 
-echo "[INFO] Removing NULL logging plugin..."
-sed -i 's/LogNullSetup();//g' plugbase.c
-
-echo "[INFO] Removing tcpdump calls..."
+echo "[INFO] Removing tcpdump function calls..."
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
+
+echo "[INFO] Removing NULL logging plugin..."
+sed -i 's/LogNullSetup();//g' plugbase.c
 
 echo "[INFO] Removing include statements..."
 sed -i '/spo_log_tcpdump.h/d' plugbase.c
@@ -113,13 +113,17 @@ cd ..
 echo "[INFO] Regenerating Snort build system..."
 autoreconf -fi || true
 
-echo "[INFO] Removing tcpdump entries in ALL Makefiles..."
+echo "[INFO] Removing tcpdump entries from Makefiles..."
 find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
 
+# After regeneration, re-patch again
 cd src
+sed -i '/spo_log_tcpdump.h/d' plugbase.c
+sed -i '/spo_log_tcpdump.h/d' snort.c
+cd ..
+
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
-cd ..
 
 # ------------------------------------------------------------
 # Step 5 – Build Snort
@@ -134,7 +138,7 @@ make install
 snort -V || { echo "[ERROR] Snort install FAILED!"; exit 1; }
 
 # ------------------------------------------------------------
-# Step 6 – Snort config + correlator
+# Step 6 – Snort folders + correlator installation
 # ------------------------------------------------------------
 echo
 echo "[6/6] Setting up Snort folders & correlator..."
@@ -147,13 +151,17 @@ mkdir -p /usr/local/lib/snort_dynamicrules
 touch /etc/snort/rules/local.rules
 
 groupadd -f snort
-id -u snort &>/dev/null || useradd snort -r -s /sbin/nologin
+
+# Safe user creation
+if ! id -u snort &>/dev/null; then
+    useradd -r -s /sbin/nologin -g snort snort
+fi
 
 chmod -R 5775 /etc/snort
 chmod -R 5775 /var/log/snort
 
 # ------------------------------------------------------------
-# FIXED: Correlator now reliably installs from GitHub
+# Install correlator from GitHub
 # ------------------------------------------------------------
 echo "[INFO] Installing correlator from GitHub..."
 
@@ -166,7 +174,7 @@ for f in "${FILES[@]}"; do
     if wget -q "$CORR_URL/$f" -O "/opt/correlator/$f"; then
         echo " - Installed $f"
     else
-        echo " - WARNING: Could not download $f"
+        echo " - WARNING: Failed to download $f"
     fi
 done
 
