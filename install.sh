@@ -22,7 +22,6 @@ echo "[INFO] Detected OS: $OS_NAME ($OS_VERSION)"
 # ------------------------------------------------------------
 # Step 1 – Install dependencies
 # ------------------------------------------------------------
-echo
 echo "[1/6] Installing system dependencies..."
 
 apt update -y
@@ -34,7 +33,6 @@ apt install -y build-essential autoconf automake libtool pkg-config \
 # ------------------------------------------------------------
 # Step 2 – Install DAQ 2.0.7
 # ------------------------------------------------------------
-echo
 echo "[2/6] Installing DAQ 2.0.7..."
 
 cd /tmp
@@ -44,15 +42,13 @@ tar -xzf daq-2.0.7.tar.gz
 cd daq-2.0.7
 
 # Patch RPCAP issues
-sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
-sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
-sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
-sed -i 's/pcap_remoteact_accept//g'  ./configure || true
+sed -i 's/pcap_remoteact_accept_ex//g' aclocal.m4 configure || true
+sed -i 's/pcap_remoteact_accept//g' aclocal.m4 configure || true
 
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
-# Fix build ordering
+# Fix build order
 cd sfbpf
 bison -d grammar.y -o grammar.c
 cp grammar.h tokdefs.h
@@ -76,7 +72,6 @@ echo "[SUCCESS] DAQ installed."
 # ------------------------------------------------------------
 # Step 3 – Install Snort 2.9.20
 # ------------------------------------------------------------
-echo
 echo "[3/6] Downloading Snort 2.9.20..."
 
 cd /tmp
@@ -88,31 +83,28 @@ cd snort-2.9.20
 # ------------------------------------------------------------
 # Step 4 – Patch Snort
 # ------------------------------------------------------------
-echo
 echo "[4/6] Applying Snort patches..."
 
 cd src
 
-echo "[INFO] Removing broken tcpdump plugin..."
-rm -f output-plugins/spo_log_tcpdump.c
-rm -f output-plugins/spo_log_tcpdump.h
+# Remove broken plugin
+rm -f output-plugins/spo_log_tcpdump.c output-plugins/spo_log_tcpdump.h
 
-echo "[INFO] Removing tcpdump-related function calls..."
+# Remove function calls
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
 
-echo "[INFO] Removing NULL logging plugin..."
+# Remove NULL logging
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-echo "[INFO] Cleaning leftover includes..."
-sed -i '/spo_log_tcpdump.h/d' plugbase.c
-sed -i '/spo_log_tcpdump.h/d' snort.c
+# Remove includes
+sed -i '/spo_log_tcpdump.h/d' plugbase.c snort.c
 
 cd ..
 
 autoreconf -fi || true
 
-echo "[INFO] Removing tcpdump references from Makefiles..."
+# Remove Makefile entries
 find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
 
 cd src
@@ -123,7 +115,6 @@ cd ..
 # ------------------------------------------------------------
 # Step 5 – Build Snort
 # ------------------------------------------------------------
-echo
 echo "[5/6] Building Snort..."
 
 ./configure --enable-sourcefire --disable-open-appid
@@ -133,15 +124,25 @@ make install
 snort -V || { echo "[ERROR] Snort installation FAILED!"; exit 1; }
 
 # ------------------------------------------------------------
-# Step 6 – Setup Snort folders + Install correlator
+# Step 6 – Install Snort config + correlator
 # ------------------------------------------------------------
-echo
-echo "[6/6] Setting up Snort folders & correlator..."
+echo "[6/6] Setting up Snort configuration..."
 
+# Clean any existing configs
+rm -f /etc/snort/snort.conf
+rm -rf /etc/snort/rules
+
+# Recreate folders
 mkdir -p /etc/snort/rules /etc/snort/preproc_rules /var/log/snort \
          /usr/local/lib/snort_dynamicrules
 
-touch /etc/snort/rules/local.rules
+# Copy YOUR snort.conf
+wget -q https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/snort.conf -O /etc/snort/snort.conf
+echo " - Installed snort.conf"
+
+# Copy YOUR rules
+wget -q https://raw.githubusercontent.com/SahiK19/agent-installation/main/snort_installation/rules/local.rules -O /etc/snort/rules/local.rules
+echo " - Installed rules folder"
 
 groupadd -f snort
 id -u snort &>/dev/null || useradd -r -s /sbin/nologin -g snort snort
@@ -151,30 +152,25 @@ chmod -R 5775 /etc/snort /var/log/snort
 # ------------------------------------------------------------
 # Install correlator
 # ------------------------------------------------------------
-echo "[INFO] Installing correlator from GitHub..."
+echo "[INFO] Installing correlator..."
 
 mkdir -p /opt/correlator
 CORR_URL="https://raw.githubusercontent.com/SahiK19/agent-installation/main/correlator"
 
-echo "[INFO] Downloading correlate.py..."
-wget -q "$CORR_URL/correlate.py" -O "/opt/correlator/correlate.py"
+wget -q "$CORR_URL/correlate.py" -O /opt/correlator/correlate.py
 chmod +x /opt/correlator/correlate.py
 
-echo "[INFO] Downloading correlator.service..."
-wget -q "$CORR_URL/correlator.service" -O "/etc/systemd/system/correlator.service"
+wget -q "$CORR_URL/correlator.service" -O /etc/systemd/system/correlator.service
 
-echo "[INFO] Installing Python dependencies..."
 pip3 install --break-system-packages requests
 
-echo "[INFO] Enabling correlator.service..."
 systemctl daemon-reload
 systemctl enable correlator.service
 systemctl restart correlator.service
 
-echo "[INFO] Service status:"
+echo "[INFO] Correlator service status:"
 systemctl status correlator.service --no-pager || true
 
-echo
 echo "=============================================="
 echo " INSTALLATION COMPLETE – SNORT + DAQ + CORRELATOR"
 echo "=============================================="
