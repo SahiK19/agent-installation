@@ -6,12 +6,11 @@ echo "     AGENT INSTALLATION PACKAGE - FULL INSTALL"
 echo "================================================="
 
 # -----------------------------------------------
-# Function: Safe APT Update (Ubuntu 24.04 fix)
+# Function: Safe APT Update (Ubuntu 24.04 / WSL fix)
 # -----------------------------------------------
 safe_apt_update() {
     echo "[1/8] Updating system packages (safe mode)..."
 
-    # Try APT update, but DO NOT EXIT on failure
     set +e
     apt update -y
     UPDATE_STATUS=$?
@@ -25,7 +24,7 @@ safe_apt_update() {
 }
 
 # -----------------------------------------------
-# Function: Install Dependencies
+# Function: Install Dependencies (with Debian 13 fix)
 # -----------------------------------------------
 install_dependencies() {
     echo "[2/8] Installing system dependencies..."
@@ -34,9 +33,30 @@ install_dependencies() {
         build-essential \
         wget curl git \
         python3 python3-pip python3-venv \
-        libpcap-dev libpcre3-dev zlib1g-dev \
+        libpcap-dev zlib1g-dev \
         libdumbnet-dev bison flex \
         ethtool net-tools
+
+    OS_VERSION=$(grep -oP '(?<=VERSION_ID=").*(?=")' /etc/os-release | cut -d'.' -f1)
+
+    if [[ "$OS_VERSION" == "13" ]]; then
+        echo "[INFO] Debian 13 detected. Installing PCRE 8.45 from source..."
+
+        cd /tmp
+        wget https://downloads.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz -O pcre-8.45.tar.gz
+        tar -xzf pcre-8.45.tar.gz
+        cd pcre-8.45
+
+        ./configure
+        make -j$(nproc)
+        make install
+        ldconfig
+
+        echo "[OK] PCRE 8.45 installed manually."
+    else
+        echo "[INFO] Installing libpcre3-dev from repo..."
+        apt install -y libpcre3-dev
+    fi
 
     echo "[OK] Dependencies installed."
 }
@@ -126,6 +146,7 @@ EOF
 # -----------------------------------------------
 verify_installation() {
     echo "[7/8] Verifying installation..."
+
     snort -V || echo "[WARN] Snort version check failed (WSL limitation expected)."
     python3 --version
 }
