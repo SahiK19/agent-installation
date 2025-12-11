@@ -3,7 +3,7 @@ set -e
 
 # ===========================================
 #  AGENT INSTALLATION PACKAGE – FULL SETUP
-#  Snort 2.9.20 + DAQ 2.0.7 (manual install)
+#  Snort 2.9.20 + DAQ 2.0.7 (manual build)
 # ===========================================
 
 BASE_DIR="/home/agent_installation_package"
@@ -49,41 +49,40 @@ sudo apt install -y \
     zlib1g-dev \
     libluajit-5.1-dev \
     libssl-dev \
+    libtirpc-dev \
     wget \
     python3 python3-pip unzip
 
 echo
-echo "[2/6] Downloading DAQ ${DAQ_VERSION}..."
+echo "[2/6] Downloading and installing DAQ ${DAQ_VERSION}..."
 wget -O /tmp/${DAQ_TARBALL} ${DAQ_URL}
-
-echo "[INFO] Extracting DAQ..."
 cd /tmp
 tar -xvzf ${DAQ_TARBALL}
-
-echo "[INFO] Compiling DAQ..."
 cd daq-${DAQ_VERSION}
 ./configure
 make -j$(nproc)
 sudo make install
-
 sudo ldconfig
 echo "[INFO] DAQ installation complete."
 echo
 
-echo "[3/6] Downloading Snort ${SNORT_VERSION}..."
+echo "[3/6] Downloading and installing Snort ${SNORT_VERSION}..."
 wget -O /tmp/${SNORT_TARBALL} ${SNORT_URL}
-
-echo "[INFO] Extracting Snort..."
 cd /tmp
 tar -xvzf ${SNORT_TARBALL}
-
-echo "[INFO] Compiling Snort..."
 cd snort-${SNORT_VERSION}
-./configure --enable-sourcefire
+
+# Fix missing rpc/rpc.h and modern pcap SOCKET errors
+export CPPFLAGS="-I/usr/include/tirpc"
+export LDFLAGS="-ltirpc"
+
+# Fix: disable remote pcap API to avoid SOCKET compile failure
+./configure --enable-sourcefire --disable-remote
+
 make -j$(nproc)
 sudo make install
-
 sudo ldconfig
+
 echo "[INFO] Snort installation complete."
 echo
 
@@ -102,7 +101,7 @@ sudo mkdir -p /usr/local/lib/snort_dynamicrules
 sudo mkdir -p /var/log/snort
 
 echo
-echo "[5/6] Copying custom Snort configuration files..."
+echo "[5/6] Copying custom Snort configuration..."
 
 if [ ! -f "$SNORT_DIR/snort.conf" ]; then
     echo "ERROR: $SNORT_DIR/snort.conf not found"
@@ -121,7 +120,7 @@ sudo chmod -R 5775 /etc/snort
 echo "[OK] Snort configuration installed."
 echo
 
-echo "[6/6] Installing Python correlator systemd service..."
+echo "[6/6] Installing correlator systemd service..."
 
 if [ ! -f "$CORR_DIR/correlate.py" ]; then
     echo "ERROR: $CORR_DIR/correlate.py not found"
@@ -133,9 +132,11 @@ if [ ! -f "$CORR_DIR/correlator.service" ]; then
     exit 1
 fi
 
+# Move script to correct location
 sudo cp "$CORR_DIR/correlate.py" /usr/local/bin/correlate.py
 sudo chmod +x /usr/local/bin/correlate.py
 
+# Ensure service uses correct ExecStart path
 sudo cp "$CORR_DIR/correlator.service" /etc/systemd/system/correlator.service
 
 sudo systemctl daemon-reload
