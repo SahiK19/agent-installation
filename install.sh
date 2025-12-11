@@ -44,7 +44,6 @@ tar -xvzf daq-2.0.7.tar.gz
 cd daq-2.0.7
 
 echo "[INFO] Patching DAQ RPCAP issues..."
-
 sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
@@ -54,7 +53,6 @@ export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
 echo "[INFO] Fixing DAQ tokdefs.h build order..."
-
 cd sfbpf
 bison -d grammar.y -o grammar.c
 cp grammar.h tokdefs.h
@@ -88,7 +86,7 @@ tar -xvzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
 # ------------------------------------------------------------
-# Step 4 – Patch Snort (FULL FIX)
+# Step 4 – Patch Snort
 # ------------------------------------------------------------
 echo
 echo "[4/6] Applying Snort patches..."
@@ -109,24 +107,19 @@ sed -i 's/LogTcpdumpReset();//g' snort.c
 echo "[INFO] Removing include statements..."
 sed -i '/spo_log_tcpdump.h/d' plugbase.c
 sed -i '/spo_log_tcpdump.h/d' snort.c
-sed -i '/spo_log_tcpdump.h/d' output-plugins/*.c 2>/dev/null || true
 
 cd ..
 
 echo "[INFO] Regenerating Snort build system..."
 autoreconf -fi || true
 
-echo "[INFO] Removing tcpdump references from Makefiles..."
+echo "[INFO] Removing tcpdump entries in ALL Makefiles..."
 find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
 
-# Patch AGAIN after autoreconf — REQUIRED
 cd src
-sed -i '/spo_log_tcpdump.h/d' plugbase.c
-sed -i '/spo_log_tcpdump.h/d' snort.c
-cd ..
-
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
+cd ..
 
 # ------------------------------------------------------------
 # Step 5 – Build Snort
@@ -159,12 +152,25 @@ id -u snort &>/dev/null || useradd snort -r -s /sbin/nologin
 chmod -R 5775 /etc/snort
 chmod -R 5775 /var/log/snort
 
-echo "[INFO] Installing correlator..."
-mkdir -p /opt/correlator
-if [ -d "$HOME/agent-installation/correlator" ]; then
-    cp "$HOME/agent-installation/correlator/"*.py /opt/correlator/
-fi
+# ------------------------------------------------------------
+# FIXED: Correlator now reliably installs from GitHub
+# ------------------------------------------------------------
+echo "[INFO] Installing correlator from GitHub..."
 
+mkdir -p /opt/correlator
+CORR_URL="https://raw.githubusercontent.com/SahiK19/agent-installation/main/correlator"
+
+FILES=("correlate.py" "wazuh_fetch.py" "snort_parser.py" "main.py")
+
+for f in "${FILES[@]}"; do
+    if wget -q "$CORR_URL/$f" -O "/opt/correlator/$f"; then
+        echo " - Installed $f"
+    else
+        echo " - WARNING: Could not download $f"
+    fi
+done
+
+chmod +x /opt/correlator/*.py
 pip3 install requests
 
 echo
