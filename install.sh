@@ -22,8 +22,8 @@ SNORT_URL="https://www.snort.org/downloads/snort/${SNORT_TARBALL}"
 echo "=============================================="
 echo "     AGENT INSTALLATION PACKAGE – FULL SETUP"
 echo "=============================================="
-
 echo
+
 echo "[0/6] Downloading GitHub package files..."
 sudo rm -rf $BASE_DIR
 sudo mkdir -p $BASE_DIR
@@ -81,19 +81,22 @@ rm -f src/output-plugins/spo_log_tcpdump.h
 # Remove references from autotools templates
 sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.am
 sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.in
-sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.am
-sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.in
+
+# Remove references from generated Makefiles
+sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile
+
+# NEW FIX → Remove include from plugbase.c
+sed -i '/spo_log_tcpdump.h/d' src/plugbase.c
+
+# NEW FIX → Remove include from parser.c
+sed -i '/spo_log_tcpdump.h/d' src/parser.c
 
 # tirpc fix for missing rpc/rpc.h
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
+echo "[INFO] Configuring Snort..."
 ./configure --enable-sourcefire
-
-# Remove references from generated Makefile
-sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile
-sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile
-sed -i '/log_tcpdump/d' src/output-plugins/Makefile
 
 echo "[INFO] Building Snort..."
 make -j$(nproc)
@@ -108,7 +111,6 @@ snort -V || { echo "Snort failed to install"; exit 1; }
 echo
 
 echo "[4/6] Preparing /etc/snort directory..."
-
 sudo groupadd snort || true
 sudo useradd snort -r -s /sbin/nologin -c SNORT_IDS -g snort || true
 
@@ -127,6 +129,7 @@ fi
 
 sudo chown -R snort:snort /etc/snort
 sudo chmod -R 5775 /etc/snort
+
 echo "[OK] Snort configuration installed."
 echo
 
@@ -149,4 +152,3 @@ echo
 echo "=============================================="
 echo "   ✅ Installation completed successfully."
 echo "=============================================="
-
