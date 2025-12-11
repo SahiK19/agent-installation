@@ -34,8 +34,7 @@ sudo apt install unzip -y
 unzip package.zip
 mv agent-installation-main/* .
 rm -rf agent-installation-main package.zip
-
-echo "[OK] Package files downloaded into $BASE_DIR"
+echo "[OK] Package files downloaded."
 echo
 
 echo "[1/6] Installing build dependencies..."
@@ -59,6 +58,7 @@ wget -O /tmp/${DAQ_TARBALL} ${DAQ_URL}
 cd /tmp
 tar -xvzf ${DAQ_TARBALL}
 cd daq-${DAQ_VERSION}
+
 ./configure
 make -j$(nproc)
 sudo make install
@@ -72,12 +72,15 @@ cd /tmp
 tar -xvzf ${SNORT_TARBALL}
 cd snort-${SNORT_VERSION}
 
-# Fix missing rpc/rpc.h and modern pcap SOCKET errors
+echo "[INFO] Applying tcpdump plugin patch (fix SOCKET error)..."
+rm -f src/output-plugins/spo_log_tcpdump.c
+rm -f src/output-plugins/spo_log_tcpdump.h
+
+# Fix missing rpc/rpc.h and SOCKET issues
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
-# Fix: disable remote pcap API to avoid SOCKET compile failure
-./configure --enable-sourcefire --disable-remote
+./configure --enable-sourcefire
 
 make -j$(nproc)
 sudo make install
@@ -87,7 +90,7 @@ echo "[INFO] Snort installation complete."
 echo
 
 echo "=== Verifying Snort version ==="
-snort -V || { echo "Snort not installed correctly"; exit 1; }
+snort -V || { echo "Snort failed to install"; exit 1; }
 
 echo
 echo "[4/6] Preparing /etc/snort directory..."
@@ -101,13 +104,7 @@ sudo mkdir -p /usr/local/lib/snort_dynamicrules
 sudo mkdir -p /var/log/snort
 
 echo
-echo "[5/6] Copying custom Snort configuration..."
-
-if [ ! -f "$SNORT_DIR/snort.conf" ]; then
-    echo "ERROR: $SNORT_DIR/snort.conf not found"
-    exit 1
-fi
-
+echo "[5/6] Copying Snort configuration..."
 sudo cp "$SNORT_DIR/snort.conf" /etc/snort/snort.conf
 
 if [ -d "$SNORT_DIR/rules" ]; then
@@ -116,27 +113,14 @@ fi
 
 sudo chown -R snort:snort /etc/snort
 sudo chmod -R 5775 /etc/snort
-
 echo "[OK] Snort configuration installed."
 echo
 
-echo "[6/6] Installing correlator systemd service..."
+echo "[6/6] Installing correlator service..."
 
-if [ ! -f "$CORR_DIR/correlate.py" ]; then
-    echo "ERROR: $CORR_DIR/correlate.py not found"
-    exit 1
-fi
-
-if [ ! -f "$CORR_DIR/correlator.service" ]; then
-    echo "ERROR: $CORR_DIR/correlator.service not found"
-    exit 1
-fi
-
-# Move script to correct location
 sudo cp "$CORR_DIR/correlate.py" /usr/local/bin/correlate.py
 sudo chmod +x /usr/local/bin/correlate.py
 
-# Ensure service uses correct ExecStart path
 sudo cp "$CORR_DIR/correlator.service" /etc/systemd/system/correlator.service
 
 sudo systemctl daemon-reload
