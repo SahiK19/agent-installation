@@ -24,6 +24,20 @@ echo "     AGENT INSTALLATION PACKAGE – FULL SETUP"
 echo "=============================================="
 
 echo
+echo "[0/6] Downloading GitHub package files..."
+sudo rm -rf $BASE_DIR
+sudo mkdir -p $BASE_DIR
+cd $BASE_DIR
+
+wget https://github.com/SahiK19/agent-installation/archive/refs/heads/main.zip -O package.zip
+sudo apt install unzip -y
+unzip package.zip
+mv agent-installation-main/* .
+rm -rf agent-installation-main package.zip
+
+echo "[OK] Package files downloaded into $BASE_DIR"
+echo
+
 echo "[1/6] Installing build dependencies..."
 sudo apt update
 sudo apt install -y \
@@ -36,7 +50,7 @@ sudo apt install -y \
     libluajit-5.1-dev \
     libssl-dev \
     wget \
-    python3 python3-pip
+    python3 python3-pip unzip
 
 echo
 echo "[2/6] Downloading DAQ ${DAQ_VERSION}..."
@@ -54,8 +68,8 @@ sudo make install
 
 sudo ldconfig
 echo "[INFO] DAQ installation complete."
-
 echo
+
 echo "[3/6] Downloading Snort ${SNORT_VERSION}..."
 wget -O /tmp/${SNORT_TARBALL} ${SNORT_URL}
 
@@ -71,8 +85,8 @@ sudo make install
 
 sudo ldconfig
 echo "[INFO] Snort installation complete."
-
 echo
+
 echo "=== Verifying Snort version ==="
 snort -V || { echo "Snort not installed correctly"; exit 1; }
 
@@ -82,7 +96,6 @@ echo "[4/6] Preparing /etc/snort directory..."
 sudo groupadd snort || true
 sudo useradd snort -r -s /sbin/nologin -c SNORT_IDS -g snort || true
 
-sudo mkdir -p /etc/snort
 sudo mkdir -p /etc/snort/rules
 sudo mkdir -p /etc/snort/preproc_rules
 sudo mkdir -p /usr/local/lib/snort_dynamicrules
@@ -105,7 +118,9 @@ fi
 sudo chown -R snort:snort /etc/snort
 sudo chmod -R 5775 /etc/snort
 
+echo "[OK] Snort configuration installed."
 echo
+
 echo "[6/6] Installing Python correlator systemd service..."
 
 if [ ! -f "$CORR_DIR/correlate.py" ]; then
