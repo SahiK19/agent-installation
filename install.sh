@@ -53,7 +53,7 @@ sudo apt install -y \
     python3 python3-pip unzip
 
 echo
-echo "[2/6] Downloading and installing DAQ ${DAQ_VERSION}..."
+echo "[2/6] Installing DAQ ${DAQ_VERSION}..."
 wget -O /tmp/${DAQ_TARBALL} ${DAQ_URL}
 cd /tmp
 tar -xvzf ${DAQ_TARBALL}
@@ -66,17 +66,27 @@ sudo ldconfig
 echo "[INFO] DAQ installation complete."
 echo
 
-echo "[3/6] Downloading and installing Snort ${SNORT_VERSION}..."
+echo "[3/6] Installing Snort ${SNORT_VERSION}..."
 wget -O /tmp/${SNORT_TARBALL} ${SNORT_URL}
 cd /tmp
 tar -xvzf ${SNORT_TARBALL}
 cd snort-${SNORT_VERSION}
 
-echo "[INFO] Applying tcpdump plugin patch (fix SOCKET error)..."
+echo "[INFO] Applying tcpdump plugin removal patch to fix SOCKET error..."
+
+# Remove broken source files
 rm -f src/output-plugins/spo_log_tcpdump.c
 rm -f src/output-plugins/spo_log_tcpdump.h
 
-# Fix missing rpc/rpc.h and SOCKET issues
+# Remove references from Makefile.am and Makefile.in
+sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.am
+sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.in
+
+# Ensure no leftover .o targets
+sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.in
+sed -i '/spo_log_tcpdump.o/d' src/output-plugins/Makefile.am
+
+# Fix rpc/rpc.h (tirpc dependency)
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
@@ -91,8 +101,8 @@ echo
 
 echo "=== Verifying Snort version ==="
 snort -V || { echo "Snort failed to install"; exit 1; }
-
 echo
+
 echo "[4/6] Preparing /etc/snort directory..."
 
 sudo groupadd snort || true
