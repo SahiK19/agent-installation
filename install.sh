@@ -5,46 +5,47 @@ echo "================================================="
 echo "     AGENT INSTALLATION PACKAGE - FULL INSTALL"
 echo "================================================="
 
-# -----------------------------------------------
-# Function: Safe APT Update (Ubuntu 24.04 / WSL fix)
-# -----------------------------------------------
+# ---------------------------------------------------
+# 1. SAFE APT UPDATE (Ubuntu 24.04 / WSL fix)
+# ---------------------------------------------------
 safe_apt_update() {
     echo "[1/9] Updating system packages (safe mode)..."
 
     set +e
     apt update -y
-    UPDATE_STATUS=$?
+    STATUS=$?
     set -e
 
-    if [[ $UPDATE_STATUS -ne 0 ]]; then
-        echo "[WARN] APT update returned warnings/errors."
-        echo "[INFO] This is NORMAL on Ubuntu 24.04 or WSL."
+    if [[ $STATUS -ne 0 ]]; then
+        echo "[WARN] APT update returned warnings."
         echo "[INFO] Continuing installation..."
     fi
 }
 
-# -----------------------------------------------
-# Function: Install Dependencies (with Debian 13 PCRE fix)
-# -----------------------------------------------
+# ---------------------------------------------------
+# 2. INSTALL DEPENDENCIES
+# ---------------------------------------------------
 install_dependencies() {
-    echo "[2/9] Installing system dependencies..."
+    echo "[2/9] Installing build dependencies..."
 
     apt install -y \
         build-essential \
         wget curl git \
+        autoconf automake libtool pkg-config \
         python3 python3-pip python3-venv \
         libpcap-dev zlib1g-dev \
         libdumbnet-dev bison flex \
         ethtool net-tools
 
-    OS_VERSION=$(grep -oP '(?<=VERSION_ID=").*(?=")' /etc/os-release | cut -d'.' -f1)
+    echo "[OK] Base dependencies installed."
 
-    if [[ "$OS_VERSION" == "13" ]]; then
-        echo "[INFO] Debian 13 detected — installing PCRE 8.45 from source..."
+    # PCRE check (Debian 13 breaks libpcre3-dev)
+    if ! dpkg -l | grep -q libpcre3; then
+        echo "[INFO] Installing PCRE 8.45 manually (required for Snort)..."
 
         cd /tmp
-        wget https://downloads.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz -O pcre-8.45.tar.gz
-        tar -xzf pcre-8.45.tar.gz
+        wget https://downloads.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz -O pcre.tar.gz
+        tar -xzf pcre.tar.gz
         cd pcre-8.45
 
         ./configure
@@ -52,68 +53,84 @@ install_dependencies() {
         make install
         ldconfig
 
-        echo "[OK] PCRE 8.45 installed manually."
-    else
-        echo "[INFO] Installing libpcre3-dev from repo..."
-        apt install -y libpcre3-dev
+        echo "[OK] PCRE installed manually."
     fi
-
-    echo "[OK] Dependencies installed."
 }
 
-# -----------------------------------------------
-# Function: Install DAQ 2.0.7 (REQUIRED FOR SNORT)
-# -----------------------------------------------
+# ---------------------------------------------------
+# 3. INSTALL DAQ 2.0.7
+# ---------------------------------------------------
 install_daq() {
     echo "[3/9] Installing DAQ 2.0.7..."
 
-    DAQ_VERSION="2.0.7"
-    DAQ_TARBALL="daq-${DAQ_VERSION}.tar.gz"
-
     cd /tmp
-    wget https://www.snort.org/downloads/snort/${DAQ_TARBALL} -O ${DAQ_TARBALL}
+    wget https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz -O daq.tar.gz
+    tar -xzf daq.tar.gz
+    cd daq-2.0.7
 
-    tar -xvzf ${DAQ_TARBALL}
-    cd daq-${DAQ_VERSION}
+    autoreconf -fvi
 
-    ./configure
+    ./configure --prefix=/usr/local --enable-static
     make -j$(nproc)
     make install
+
     ldconfig
 
-    echo "[OK] DAQ ${DAQ_VERSION} installed."
+    # Force symlinks so Snort can find DAQ
+    ln -sf /usr/local/bin/daq-modules-config /usr/bin/daq-modules-config
+    ln -sf /usr/local/bin/daq-modules-config /usr/sbin/daq-modules-config
+    ln -sf /usr/local/lib/libdaq_static.a /usr/lib/libdaq_static.a 2>/dev/null || true
+    ln -sf /usr/local/lib/libdaq.a /usr/lib/libdaq.a 2>/dev/null || true
+
+    echo "[OK] DAQ installed."
 }
 
-# -----------------------------------------------
-# Function: Install Snort 2.9.20
-# -----------------------------------------------
-install_snort() {
-    echo "[4/9] Installing Snort 2.9.20 from source..."
+# ---------------------------------------------------
+# 4. VERIFY DAQ INSTALLATION
+# ---------------------------------------------------
+verify_daq() {
+    echo "[4/9] Verifying DAQ installation..."
 
-    SNORT_VERSION="2.9.20"
-    SNORT_TARBALL="snort-${SNORT_VERSION}.tar.gz"
+    if [[ ! -f /usr/local/bin/daq-modules-config ]]; then
+        echo "[ERROR] daq-modules-config missing. DAQ install failed."
+        exit 1
+    fi
+
+    if [[ ! -d /usr/local/lib/daq ]]; then
+        echo "[ERROR] /usr/local/lib/daq modules missing. DAQ install failed."
+        exit 1
+    fi
+
+    echo "[OK] DAQ installation verified."
+}
+
+# ---------------------------------------------------
+# 5. INSTALL SNORT 2.9.20
+# ---------------------------------------------------
+install_snort() {
+    echo "[5/9] Installing Snort 2.9.20..."
 
     cd /tmp
-    wget https://www.snort.org/downloads/snort/${SNORT_TARBALL} -O ${SNORT_TARBALL}
-
-    tar -xvzf ${SNORT_TARBALL}
-    cd snort-${SNORT_VERSION}
+    wget https://www.snort.org/downloads/snort/snort-2.9.20.tar.gz -O snort.tar.gz
+    tar -xzf snort.tar.gz
+    cd snort-2.9.20
 
     ./configure --enable-sourcefire
     make -j$(nproc)
     make install
 
     ldconfig
-    ln -s /usr/local/bin/snort /usr/sbin/snort 2>/dev/null || true
 
-    echo "[OK] Snort ${SNORT_VERSION} installed."
+    ln -sf /usr/local/bin/snort /usr/sbin/snort 2>/dev/null || true
+
+    echo "[OK] Snort installed."
 }
 
-# -----------------------------------------------
-# Function: Deploy Snort Configuration
-# -----------------------------------------------
+# ---------------------------------------------------
+# 6. DEPLOY SNORT CONFIGURATION
+# ---------------------------------------------------
 deploy_snort_conf() {
-    echo "[5/9] Deploying Snort configuration..."
+    echo "[6/9] Deploying Snort configuration..."
 
     mkdir -p /etc/snort/rules
     mkdir -p /var/log/snort
@@ -124,25 +141,24 @@ deploy_snort_conf() {
     echo "[OK] Snort configuration deployed."
 }
 
-# -----------------------------------------------
-# Function: Install Correlator Script
-# -----------------------------------------------
+# ---------------------------------------------------
+# 7. INSTALL CORRELATOR SCRIPT
+# ---------------------------------------------------
 install_correlator() {
-    echo "[6/9] Installing Python correlator..."
+    echo "[7/9] Installing correlator script..."
 
     cp ./correlator/correlate.py /usr/local/bin/correlate.py
     chmod +x /usr/local/bin/correlate.py
-
     pip3 install requests
 
     echo "[OK] Correlator installed."
 }
 
-# -----------------------------------------------
-# Function: Install correlator.service
-# -----------------------------------------------
+# ---------------------------------------------------
+# 8. INSTALL SYSTEMD SERVICE
+# ---------------------------------------------------
 install_correlator_service() {
-    echo "[7/9] Creating correlator systemd service..."
+    echo "[8/9] Installing correlator.service..."
 
 cat <<EOF >/etc/systemd/system/correlator.service
 [Unit]
@@ -165,34 +181,27 @@ EOF
     echo "[OK] correlator.service installed."
 }
 
-# -----------------------------------------------
-# Function: Verify Installation
-# -----------------------------------------------
-verify_installation() {
-    echo "[8/9] Verifying installation..."
-
-    snort -V || echo "[WARN] Snort -V failed (expected in WSL)."
-    python3 --version
-}
-
-# -----------------------------------------------
-# Function: Finish
-# -----------------------------------------------
+# ---------------------------------------------------
+# 9. FINAL CHECKS
+# ---------------------------------------------------
 finish() {
-    echo "[9/9] Installation Completed Successfully!"
-    echo "Reboot recommended before running Snort."
+    echo "[9/9] Final checks..."
+    snort -V || echo "[WARN] Snort version check failed (WSL restriction)."
+    python3 --version
+    echo "================================================="
+    echo "INSTALLATION COMPLETE"
+    echo "================================================="
 }
 
-# -----------------------------------------------
+# ---------------------------------------------------
 # RUN EVERYTHING
-# -----------------------------------------------
+# ---------------------------------------------------
 safe_apt_update
 install_dependencies
 install_daq
+verify_daq
 install_snort
 deploy_snort_conf
 install_correlator
 install_correlator_service
-verify_installation
 finish
-
