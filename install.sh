@@ -22,8 +22,8 @@ SNORT_URL="https://www.snort.org/downloads/snort/${SNORT_TARBALL}"
 echo "=============================================="
 echo "     AGENT INSTALLATION PACKAGE – FULL SETUP"
 echo "=============================================="
-echo
 
+echo
 echo "[0/6] Downloading GitHub package files..."
 sudo rm -rf $BASE_DIR
 sudo mkdir -p $BASE_DIR
@@ -50,7 +50,7 @@ sudo apt install -y \
     libssl-dev \
     libtirpc-dev \
     wget \
-    python3 python3-pip unzip
+    python3 python3-pip unzip flex bison
 
 echo
 echo "[2/6] Installing DAQ ${DAQ_VERSION}..."
@@ -72,30 +72,31 @@ cd /tmp
 tar -xvzf ${SNORT_TARBALL}
 cd snort-${SNORT_VERSION}
 
-echo "[INFO] Applying tcpdump plugin removal patch (full patch)..."
+echo "[INFO] Applying tcpdump removal + RPCAP fix patch..."
 
-# Remove broken plugin source files
+# ---------------------------
+# REMOVE TCPDUMP PLUGIN FULLY
+# ---------------------------
 rm -f src/output-plugins/spo_log_tcpdump.c
 rm -f src/output-plugins/spo_log_tcpdump.h
 
-# Remove references from autotools templates
-sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.am
-sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile.in
+# Remove from Makefiles
+sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile*
+sed -i '/spo_log_tcpdump/d' src/Makefile*
+sed -i '/spo_log_tcpdump/d' src/snort.c
+sed -i '/spo_log_tcpdump/d' src/parser.c
+sed -i '/spo_log_tcpdump/d' src/plugbase.c
 
-# Remove references from generated Makefiles
-sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile
+# Remove tcpdump setup function
+sed -i 's/LogTcpdumpSetup();/\/\* LogTcpdumpSetup removed \*\//g' src/plugbase.c
 
-# NEW FIX → Remove include from plugbase.c
-sed -i '/spo_log_tcpdump.h/d' src/plugbase.c
-
-# NEW FIX → Remove include from parser.c
-sed -i '/spo_log_tcpdump.h/d' src/parser.c
-
-# tirpc fix for missing rpc/rpc.h
-export CPPFLAGS="-I/usr/include/tirpc"
+# ---------------------------
+# FIX RPCAP SOCKET ERROR
+# ---------------------------
+export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
-echo "[INFO] Configuring Snort..."
+echo "[INFO] Running configure..."
 ./configure --enable-sourcefire
 
 echo "[INFO] Building Snort..."
@@ -111,6 +112,7 @@ snort -V || { echo "Snort failed to install"; exit 1; }
 echo
 
 echo "[4/6] Preparing /etc/snort directory..."
+
 sudo groupadd snort || true
 sudo useradd snort -r -s /sbin/nologin -c SNORT_IDS -g snort || true
 
