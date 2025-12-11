@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
 
-# ===========================================
-#  AGENT INSTALLATION PACKAGE – FULL SETUP
-#  Snort 2.9.20 + DAQ 2.0.7 (manual build)
-# ===========================================
-
 BASE_DIR="/home/agent_installation_package"
 SNORT_DIR="$BASE_DIR/snort_installation"
 CORR_DIR="$BASE_DIR/correlator"
@@ -23,7 +18,6 @@ echo "=============================================="
 echo "     AGENT INSTALLATION PACKAGE – FULL SETUP"
 echo "=============================================="
 
-echo
 echo "[0/6] Downloading GitHub package files..."
 sudo rm -rf $BASE_DIR
 sudo mkdir -p $BASE_DIR
@@ -49,10 +43,10 @@ sudo apt install -y \
     libluajit-5.1-dev \
     libssl-dev \
     libtirpc-dev \
-    wget \
-    python3 python3-pip unzip flex bison
-
+    flex bison \
+    wget python3 python3-pip unzip
 echo
+
 echo "[2/6] Installing DAQ ${DAQ_VERSION}..."
 wget -O /tmp/${DAQ_TARBALL} ${DAQ_URL}
 cd /tmp
@@ -72,34 +66,31 @@ cd /tmp
 tar -xvzf ${SNORT_TARBALL}
 cd snort-${SNORT_VERSION}
 
-echo "[INFO] Applying tcpdump removal + RPCAP fix patch..."
+echo "[INFO] Applying full tcpdump plugin removal patch..."
 
-# ---------------------------
-# REMOVE TCPDUMP PLUGIN FULLY
-# ---------------------------
+# Completely remove tcpdump plugin files
 rm -f src/output-plugins/spo_log_tcpdump.c
 rm -f src/output-plugins/spo_log_tcpdump.h
 
-# Remove from Makefiles
-sed -i '/spo_log_tcpdump/d' src/output-plugins/Makefile*
-sed -i '/spo_log_tcpdump/d' src/Makefile*
-sed -i '/spo_log_tcpdump/d' src/snort.c
-sed -i '/spo_log_tcpdump/d' src/parser.c
-sed -i '/spo_log_tcpdump/d' src/plugbase.c
+# Remove all references from Makefiles & project files
+grep -Rl "spo_log_tcpdump" . | xargs sed -i '/spo_log_tcpdump/d'
 
-# Remove tcpdump setup function
-sed -i 's/LogTcpdumpSetup();/\/\* LogTcpdumpSetup removed \*\//g' src/plugbase.c
+# Remove function calls inside Snort core
+sed -i 's/LogTcpdumpSetup();//g' src/snort.c
+sed -i 's/LogTcpdumpReset();//g' src/snort.c
+sed -i 's/LogTcpdumpSetup();//g' src/plugbase.c
 
-# ---------------------------
-# FIX RPCAP SOCKET ERROR
-# ---------------------------
+# Remove parser registration
+sed -i 's/{ "log_tcpdump".*//g' src/parser.c
+
+# Disable rpcap support to prevent SOCKET errors
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
-echo "[INFO] Running configure..."
-./configure --enable-sourcefire
+echo "[INFO] Patch applied successfully."
+echo
 
-echo "[INFO] Building Snort..."
+./configure --enable-sourcefire
 make -j$(nproc)
 sudo make install
 sudo ldconfig
@@ -112,7 +103,6 @@ snort -V || { echo "Snort failed to install"; exit 1; }
 echo
 
 echo "[4/6] Preparing /etc/snort directory..."
-
 sudo groupadd snort || true
 sudo useradd snort -r -s /sbin/nologin -c SNORT_IDS -g snort || true
 
@@ -120,8 +110,8 @@ sudo mkdir -p /etc/snort/rules
 sudo mkdir -p /etc/snort/preproc_rules
 sudo mkdir -p /usr/local/lib/snort_dynamicrules
 sudo mkdir -p /var/log/snort
-
 echo
+
 echo "[5/6] Copying Snort configuration..."
 sudo cp "$SNORT_DIR/snort.conf" /etc/snort/snort.conf
 
@@ -131,17 +121,14 @@ fi
 
 sudo chown -R snort:snort /etc/snort
 sudo chmod -R 5775 /etc/snort
-
 echo "[OK] Snort configuration installed."
 echo
 
 echo "[6/6] Installing correlator service..."
-
 sudo cp "$CORR_DIR/correlate.py" /usr/local/bin/correlate.py
 sudo chmod +x /usr/local/bin/correlate.py
 
 sudo cp "$CORR_DIR/correlator.service" /etc/systemd/system/correlator.service
-
 sudo systemctl daemon-reload
 sudo systemctl enable correlator.service
 sudo systemctl restart correlator.service
