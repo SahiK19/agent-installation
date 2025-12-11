@@ -61,29 +61,40 @@ install_dependencies() {
 # 3. INSTALL DAQ 2.0.7
 # ---------------------------------------------------
 install_daq() {
-    echo "[3/9] Installing DAQ 2.0.7..."
+    echo "[3/9] Installing DAQ 2.0.7 (patched for modern Linux)..."
 
     cd /tmp
     wget https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz -O daq.tar.gz
     tar -xzf daq.tar.gz
     cd daq-2.0.7
 
+    echo "[INFO] Applying DAQ build patch..."
+
+    # Fix: ensure tokdefs.h is generated *before* scanner is compiled
+    sed -i 's/sf_scanner.lo: sf_scanner.c tokdefs.h/sf_scanner.lo: tokdefs.h sf_scanner.c/' sfbpf/Makefile.am
+    sed -i 's/sf_scanner.lo: sf_scanner.c tokdefs.h/sf_scanner.lo: tokdefs.h sf_scanner.c/' sfbpf/Makefile.in
+
+    # Rebuild auto tools
     autoreconf -fvi
 
+    echo "[INFO] Building DAQ without parallel jobs (required)..."
     ./configure --prefix=/usr/local --enable-static
-    make -j$(nproc)
+
+    # MUST disable parallel jobs or tokdefs.h breaks again
+    make -j1
     make install
 
     ldconfig
 
-    # Force symlinks so Snort can find DAQ
+    # Fix missing symlinks
     ln -sf /usr/local/bin/daq-modules-config /usr/bin/daq-modules-config
     ln -sf /usr/local/bin/daq-modules-config /usr/sbin/daq-modules-config
     ln -sf /usr/local/lib/libdaq_static.a /usr/lib/libdaq_static.a 2>/dev/null || true
     ln -sf /usr/local/lib/libdaq.a /usr/lib/libdaq.a 2>/dev/null || true
 
-    echo "[OK] DAQ installed."
+    echo "[OK] DAQ installed with modern compatibility patches."
 }
+
 
 # ---------------------------------------------------
 # 4. VERIFY DAQ INSTALLATION
