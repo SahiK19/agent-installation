@@ -3,15 +3,9 @@ Description=Correlator Script for Wazuh and Snort Logs
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /root/correlate.py
-WorkingDirectory=/root
-StandardOutput=journal
-StandardError=journal
-User=root
-Group=root
+ExecStart=/usr/bin/python3 /usr/local/bin/correlate.py
 Restart=always
-RestartSec=10
-TimeoutSec=300
+User=root
 
 [Install]
 WantedBy=multi-user.target
