@@ -45,7 +45,7 @@ cd daq-2.0.7
 
 echo "[INFO] Patching DAQ RPCAP issues..."
 
-# Remove RPCAP functions from aclocal.m4 + configure
+# These files exist → correct patch locations
 sed -i 's/pcap_remoteact_accept_ex//g' ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept//g'  ./aclocal.m4 || true
 sed -i 's/pcap_remoteact_accept_ex//g' ./configure || true
@@ -55,26 +55,27 @@ export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
 # ------------------------------------------------------------
-# FIX: Generate grammar + tokdefs BEFORE compiling scanner.l
+# FIX: Generate grammar + tokdefs BEFORE compiling scanner
 # ------------------------------------------------------------
-echo "[INFO] Fixing DAQ tokdefs.h build sequence..."
+echo "[INFO] Fixing DAQ tokdefs.h build order..."
 
 cd sfbpf
 
-# Correct grammar file (your directory contains grammar.y)
+# Your DAQ contains grammar.y (NOT sf_grammar.y)
 bison -d grammar.y -o grammar.c
 
-# Bison generates grammar.h → rename to tokdefs.h
-if [ -f grammar.h ]; then
-    cp grammar.h tokdefs.h
-else
-    echo "[ERROR] grammar.h not generated!"
+if [ ! -f grammar.h ]; then
+    echo "[ERROR] grammar.h not created! Bison failed!"
     exit 1
 fi
 
-echo "[INFO] tokdefs.h successfully generated."
+cp grammar.h tokdefs.h
+echo "[INFO] tokdefs.h created."
 
 cd ..
+
+# Sometimes DAQ needs autoreconf before configure
+autoreconf -fi || true
 
 # ------------------------------------------------------------
 # Build DAQ
@@ -122,14 +123,14 @@ sed -i 's/LogTcpdumpReset();//g' snort.c
 # Remove NULL logging plugin
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-# Disable RPCAP + Win32 socket definitions
+# Disable RPCAP + Win32 SOCKET references
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
 cd ..
 
 # ------------------------------------------------------------
-# Step 5 – Build Snort (NO OPENAPPID)
+# Step 5 – Build Snort (OpenAppID DISABLED)
 # ------------------------------------------------------------
 echo
 echo "[5/6] Building Snort..."
@@ -160,6 +161,9 @@ id -u snort &>/dev/null || useradd snort -r -s /sbin/nologin
 chmod -R 5775 /etc/snort
 chmod -R 5775 /var/log/snort
 
+# ------------------------------------------------------------
+# Correlator installation
+# ------------------------------------------------------------
 echo "[INFO] Installing correlator..."
 
 mkdir -p /opt/correlator
