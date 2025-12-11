@@ -1,164 +1,137 @@
 #!/bin/bash
 set -e
 
-REPO_URL="https://github.com/SahiK19/agent-installation.git"
-INSTALL_DIR="/opt/agent-installation"
+# ===========================================
+#  AGENT INSTALLATION PACKAGE – FULL SETUP
+#  Snort 2.9.20 + DAQ 2.0.7 (manual install)
+# ===========================================
+
+BASE_DIR="/home/agent_installation_package"
+SNORT_DIR="$BASE_DIR/snort_installation"
+CORR_DIR="$BASE_DIR/correlator"
+
+DAQ_VERSION="2.0.7"
+SNORT_VERSION="2.9.20"
+
+DAQ_TARBALL="daq-${DAQ_VERSION}.tar.gz"
+SNORT_TARBALL="snort-${SNORT_VERSION}.tar.gz"
+
+DAQ_URL="https://www.snort.org/downloads/snort/${DAQ_TARBALL}"
+SNORT_URL="https://www.snort.org/downloads/snort/${SNORT_TARBALL}"
 
 echo "=============================================="
 echo "     AGENT INSTALLATION PACKAGE – FULL SETUP"
 echo "=============================================="
 
-# ---------------------------------------------------------
-#  OS DETECTION
-# ---------------------------------------------------------
-if [ -r /etc/os-release ]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    OS_ID="${ID}"
-    OS_CODENAME="${VERSION_CODENAME}"
-else
-    echo "ERROR: Cannot detect OS version."
+echo
+echo "[1/6] Installing build dependencies..."
+sudo apt update
+sudo apt install -y \
+    build-essential \
+    autotools-dev \
+    libpcap-dev \
+    libpcre3-dev \
+    libdumbnet-dev \
+    zlib1g-dev \
+    libluajit-5.1-dev \
+    libssl-dev \
+    wget \
+    python3 python3-pip
+
+echo
+echo "[2/6] Downloading DAQ ${DAQ_VERSION}..."
+wget -O /tmp/${DAQ_TARBALL} ${DAQ_URL}
+
+echo "[INFO] Extracting DAQ..."
+cd /tmp
+tar -xvzf ${DAQ_TARBALL}
+
+echo "[INFO] Compiling DAQ..."
+cd daq-${DAQ_VERSION}
+./configure
+make -j$(nproc)
+sudo make install
+
+sudo ldconfig
+echo "[INFO] DAQ installation complete."
+
+echo
+echo "[3/6] Downloading Snort ${SNORT_VERSION}..."
+wget -O /tmp/${SNORT_TARBALL} ${SNORT_URL}
+
+echo "[INFO] Extracting Snort..."
+cd /tmp
+tar -xvzf ${SNORT_TARBALL}
+
+echo "[INFO] Compiling Snort..."
+cd snort-${SNORT_VERSION}
+./configure --enable-sourcefire
+make -j$(nproc)
+sudo make install
+
+sudo ldconfig
+echo "[INFO] Snort installation complete."
+
+echo
+echo "=== Verifying Snort version ==="
+snort -V || { echo "Snort not installed correctly"; exit 1; }
+
+echo
+echo "[4/6] Preparing /etc/snort directory..."
+
+sudo groupadd snort || true
+sudo useradd snort -r -s /sbin/nologin -c SNORT_IDS -g snort || true
+
+sudo mkdir -p /etc/snort
+sudo mkdir -p /etc/snort/rules
+sudo mkdir -p /etc/snort/preproc_rules
+sudo mkdir -p /usr/local/lib/snort_dynamicrules
+sudo mkdir -p /var/log/snort
+
+echo
+echo "[5/6] Copying custom Snort configuration files..."
+
+if [ ! -f "$SNORT_DIR/snort.conf" ]; then
+    echo "ERROR: $SNORT_DIR/snort.conf not found"
     exit 1
 fi
 
-echo "[INFO] Detected OS: $OS_ID ($OS_CODENAME)"
+sudo cp "$SNORT_DIR/snort.conf" /etc/snort/snort.conf
 
-# ---------------------------------------------------------
-#  FUNCTION: INSTALL SNORT3 VIA CLOUDSMITH (OFFICIAL)
-# ---------------------------------------------------------
-install_snort3() {
-    echo
-    echo "=============================================="
-    echo "[INFO] Installing Snort 3 from Cloudsmith repository"
-    echo "=============================================="
+if [ -d "$SNORT_DIR/rules" ]; then
+    sudo cp -r "$SNORT_DIR/rules/"* /etc/snort/rules/ || true
+fi
 
-    apt update -y
-    apt install -y curl wget gnupg lsb-release
+sudo chown -R snort:snort /etc/snort
+sudo chmod -R 5775 /etc/snort
 
-    DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
-    CODENAME=$(lsb_release -cs)
-
-    echo "[INFO] Distro: $DISTRO"
-    echo "[INFO] Codename: $CODENAME"
-
-    echo "[INFO] Adding Snort3 GPG key..."
-    curl -1sLf \
-      'https://dl.cloudsmith.io/public/snort/snort3/cfg/gpg/gpg.26BAC40A492007F2.key' \
-      | gpg --dearmor \
-      | tee /usr/share/keyrings/snort3.gpg >/dev/null
-
-    echo "[INFO] Adding Snort3 APT repository..."
-    curl -1sLf \
-      "https://dl.cloudsmith.io/public/snort/snort3/cfg/setup/config.deb.txt?distro=${DISTRO}&codename=${CODENAME}" \
-      | tee /etc/apt/sources.list.d/snort3.list >/dev/null
-
-    echo "[INFO] Updating apt..."
-    apt update -y
-
-    echo "[INFO] Installing Snort3..."
-    if ! apt install -y snort3; then
-        echo "ERROR: Snort3 installation failed."
-        exit 1
-    fi
-
-    echo "[OK] Snort3 installed successfully."
-}
-
-# ---------------------------------------------------------
-#  STEP 1 — UPDATE SYSTEM & INSTALL BASE PACKAGES
-# ---------------------------------------------------------
 echo
-echo "[1/6] Updating system packages..."
-apt update -y
-apt install -y git python3 python3-pip curl wget gnupg
+echo "[6/6] Installing Python correlator systemd service..."
 
-install_snort3
-
-# ---------------------------------------------------------
-#  STEP 2 — DOWNLOAD INSTALLATION PACKAGE
-# ---------------------------------------------------------
-echo
-echo "[2/6] Downloading installation package from GitHub..."
-
-rm -rf "$INSTALL_DIR"
-git clone "$REPO_URL" "$INSTALL_DIR"
-
-if [ ! -d "$INSTALL_DIR" ]; then
-    echo "ERROR: Failed to clone repository!"
+if [ ! -f "$CORR_DIR/correlate.py" ]; then
+    echo "ERROR: $CORR_DIR/correlate.py not found"
     exit 1
 fi
 
-SNORT_SRC="$INSTALL_DIR/snort_installation"
-CORR_SRC="$INSTALL_DIR/correlator"
-
-# ---------------------------------------------------------
-#  STEP 3 — INSTALL SNORT CONFIGURATION
-# ---------------------------------------------------------
-echo
-echo "[3/6] Installing Snort configuration..."
-
-mkdir -p /etc/snort/rules
-
-# Copy configs (supports both Snort2 & Snort3 style repos)
-cp "$SNORT_SRC/snort.lua" /etc/snort/snort.lua 2>/dev/null || true
-cp "$SNORT_SRC/snort.conf" /etc/snort/snort.conf 2>/dev/null || true
-cp -r "$SNORT_SRC/rules/"* /etc/snort/rules/ 2>/dev/null || true
-
-# Ensure snort user exists
-if ! id snort >/dev/null 2>&1; then
-    echo "[INFO] Creating Snort system user..."
-    useradd -r -s /usr/sbin/nologin snort
-fi
-
-chown -R snort:snort /etc/snort
-chmod -R 644 /etc/snort/rules/* || true
-
-echo "[OK] Snort configuration installed."
-
-# ---------------------------------------------------------
-#  STEP 4 — INSTALL CORRELATOR SCRIPT
-# ---------------------------------------------------------
-echo
-echo "[4/6] Installing correlator script..."
-
-if [ ! -f "$CORR_SRC/correlate.py" ]; then
-    echo "ERROR: correlate.py missing in repo!"
+if [ ! -f "$CORR_DIR/correlator.service" ]; then
+    echo "ERROR: $CORR_DIR/correlator.service not found"
     exit 1
 fi
 
-cp "$CORR_SRC/correlate.py" /usr/local/bin/correlate.py
-chmod +x /usr/local/bin/correlate.py
+sudo cp "$CORR_DIR/correlate.py" /usr/local/bin/correlate.py
+sudo chmod +x /usr/local/bin/correlate.py
 
-echo "[OK] correlate.py installed."
+sudo cp "$CORR_DIR/correlator.service" /etc/systemd/system/correlator.service
 
-# ---------------------------------------------------------
-#  STEP 5 — INSTALL SYSTEMD SERVICE
-# ---------------------------------------------------------
+sudo systemctl daemon-reload
+sudo systemctl enable correlator.service
+sudo systemctl restart correlator.service
+
 echo
-echo "[5/6] Installing correlator systemd service..."
-
-if [ ! -f "$CORR_SRC/correlator.service" ]; then
-    echo "ERROR: correlator.service missing in repo!"
-    exit 1
-fi
-
-cp "$CORR_SRC/correlator.service" /etc/systemd/system/correlator.service
-
-systemctl daemon-reload
-systemctl enable correlator.service
-systemctl restart correlator.service
-
-echo "[OK] correlator.service enabled and started."
-
-# ---------------------------------------------------------
-# STEP 6 — VERIFY INSTALLATION
-# ---------------------------------------------------------
-echo
-echo "[6/6] Verifying service status..."
-systemctl status correlator.service --no-pager || true
+echo "=== Verifying correlator.service status ==="
+sudo systemctl status correlator.service --no-pager || true
 
 echo
 echo "=============================================="
-echo "   ✔ INSTALLATION COMPLETED SUCCESSFULLY"
+echo "   ✅ Installation completed successfully."
 echo "=============================================="
- 
