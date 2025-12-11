@@ -24,32 +24,40 @@ fi
 echo "[INFO] Detected OS: $OS_ID ($OS_CODENAME)"
 
 # ---------------------------------------------------------
-#  FUNCTION: INSTALL SNORT3 VIA OFFICIAL REPOSITORY
+#  FUNCTION: INSTALL SNORT3 VIA CLOUDSMITH (OFFICIAL)
 # ---------------------------------------------------------
 install_snort3() {
     echo
     echo "=============================================="
-    echo "[INFO] Installing Snort 3 from official repository"
+    echo "[INFO] Installing Snort 3 from Cloudsmith repository"
     echo "=============================================="
 
     apt update -y
-    apt install -y wget gnupg lsb-release
+    apt install -y curl wget gnupg lsb-release
 
-    echo "[INFO] Adding Snort3 GPG Key..."
-    wget -O snort3.key https://snort.org/downloads/snort3/snort3-apt-key.asc
-    apt-key add snort3.key
-    rm -f snort3.key
+    DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
+    CODENAME=$(lsb_release -cs)
 
-    echo "[INFO] Adding Snort3 apt repository..."
-    echo "deb https://pkgs.snort.org/debian $OS_CODENAME main" \
-        | tee /etc/apt/sources.list.d/snort3.list
+    echo "[INFO] Distro: $DISTRO"
+    echo "[INFO] Codename: $CODENAME"
+
+    echo "[INFO] Adding Snort3 GPG key..."
+    curl -1sLf \
+      'https://dl.cloudsmith.io/public/snort/snort3/cfg/gpg/gpg.26BAC40A492007F2.key' \
+      | gpg --dearmor \
+      | tee /usr/share/keyrings/snort3.gpg >/dev/null
+
+    echo "[INFO] Adding Snort3 APT repository..."
+    curl -1sLf \
+      "https://dl.cloudsmith.io/public/snort/snort3/cfg/setup/config.deb.txt?distro=${DISTRO}&codename=${CODENAME}" \
+      | tee /etc/apt/sources.list.d/snort3.list >/dev/null
 
     echo "[INFO] Updating apt..."
     apt update -y
 
     echo "[INFO] Installing Snort3..."
     if ! apt install -y snort3; then
-        echo "ERROR: Failed to install Snort3. Cannot continue."
+        echo "ERROR: Snort3 installation failed."
         exit 1
     fi
 
@@ -62,9 +70,8 @@ install_snort3() {
 echo
 echo "[1/6] Updating system packages..."
 apt update -y
-apt install -y git python3 python3-pip wget gnupg
+apt install -y git python3 python3-pip curl wget gnupg
 
-# Install Snort 3 using Method A
 install_snort3
 
 # ---------------------------------------------------------
@@ -92,12 +99,12 @@ echo "[3/6] Installing Snort configuration..."
 
 mkdir -p /etc/snort/rules
 
-# Copy repo configuration
+# Copy configs (supports both Snort2 & Snort3 style repos)
 cp "$SNORT_SRC/snort.lua" /etc/snort/snort.lua 2>/dev/null || true
 cp "$SNORT_SRC/snort.conf" /etc/snort/snort.conf 2>/dev/null || true
 cp -r "$SNORT_SRC/rules/"* /etc/snort/rules/ 2>/dev/null || true
 
-# Snort3 runs as user "snort" by default; create if missing
+# Ensure snort user exists
 if ! id snort >/dev/null 2>&1; then
     echo "[INFO] Creating Snort system user..."
     useradd -r -s /usr/sbin/nologin snort
