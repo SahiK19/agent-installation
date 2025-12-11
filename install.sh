@@ -20,7 +20,7 @@ fi
 echo "[INFO] Detected OS: $OS_NAME ($OS_VERSION)"
 
 # ------------------------------------------------------------
-# Step 1 – Install system dependencies
+# Step 1 – Install dependencies
 # ------------------------------------------------------------
 echo
 echo "[1/6] Installing system dependencies..."
@@ -45,14 +45,37 @@ cd daq-2.0.7
 
 echo "[INFO] Applying DAQ compatibility patches..."
 
-# Fix RPCAP missing functions on new libpcap
+# Fix missing RPCAP symbols on modern libpcap
 sed -i 's/pcap_remoteact_accept_ex//g' ./config/acinclude.m4 || true
 sed -i 's/pcap_remoteact_accept//g'  ./config/acinclude.m4 || true
 
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
+# ------------------------------------------------------------
+# FIX: DAQ tokdefs.h race condition
+# ------------------------------------------------------------
+echo "[INFO] Fixing DAQ tokdefs.h build issue..."
+
+cd sfbpf
+
+# Force generation of grammar + tokdefs BEFORE flex
+bison -d sf_grammar.y -o sf_grammar.c
+
+if [ ! -f tokdefs.h ]; then
+    echo "[ERROR] tokdefs.h failed to generate!"
+    exit 1
+fi
+
+echo "[INFO] tokdefs.h generated successfully."
+
+cd ..
+
+# ------------------------------------------------------------
+# Build DAQ
+# ------------------------------------------------------------
 echo "[INFO] Building DAQ..."
+
 ./configure --enable-static
 make -j$(nproc)
 make install
@@ -69,7 +92,7 @@ echo "[SUCCESS] DAQ installed."
 # Step 3 – Download Snort 2.9.20
 # ------------------------------------------------------------
 echo
-echo "[3/6] Downloading Snort 2.9.20 source..."
+echo "[3/6] Downloading Snort 2.9.20..."
 
 cd /tmp
 rm -rf snort-2.9.20*
@@ -78,7 +101,7 @@ tar -xvzf snort-2.9.20.tar.gz
 cd snort-2.9.20
 
 # ------------------------------------------------------------
-# Step 4 – Patch Snort (fixes for modern Debian)
+# Step 4 – Patch Snort
 # ------------------------------------------------------------
 echo
 echo "[4/6] Applying Snort patches..."
@@ -94,21 +117,19 @@ sed -i 's/LogTcpdumpReset();//g' snort.c
 # Remove NULL logging plugin
 sed -i 's/LogNullSetup();//g' plugbase.c
 
-# Disable RPCAP / Win32 SOCKET references
+# Disable RPCAP + Win32 socket references
 export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
 export LDFLAGS="-ltirpc"
 
 cd ..
 
 # ------------------------------------------------------------
-# Step 5 – Build + install Snort (WITHOUT OpenAppID)
+# Step 5 – Build Snort (NO OpenAppID)
 # ------------------------------------------------------------
 echo
 echo "[5/6] Building Snort..."
 
-# OpenAppID does NOT work on OpenSSL3 → must disable
 ./configure --enable-sourcefire --disable-open-appid
-
 make -j$(nproc)
 make install
 
