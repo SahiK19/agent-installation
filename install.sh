@@ -53,32 +53,17 @@ sed -i 's/pcap_remoteact_accept//g'  ./configure || true
 export CPPFLAGS="-I/usr/include/tirpc"
 export LDFLAGS="-ltirpc"
 
-# ------------------------------------------------------------
-# FIX: Generate grammar + tokdefs BEFORE compiling scanner
-# ------------------------------------------------------------
+# Fix DAQ grammar
 echo "[INFO] Fixing DAQ tokdefs.h build order..."
 
 cd sfbpf
-
 bison -d grammar.y -o grammar.c
-
-if [ ! -f grammar.h ]; then
-    echo "[ERROR] grammar.h not created! Bison failed!"
-    exit 1
-fi
-
 cp grammar.h tokdefs.h
-echo "[INFO] tokdefs.h created."
-
 cd ..
 
 autoreconf -fi || true
 
-# ------------------------------------------------------------
-# Build DAQ
-# ------------------------------------------------------------
 echo "[INFO] Building DAQ..."
-
 ./configure --enable-static
 make -j$(nproc)
 make install
@@ -111,34 +96,32 @@ echo "[4/6] Applying Snort patches..."
 
 cd src
 
-echo "[INFO] Removing tcpdump plugin (files + Makefile references)..."
-
-# Delete files
+echo "[INFO] Removing broken tcpdump plugin..."
 rm -f output-plugins/spo_log_tcpdump.c
 rm -f output-plugins/spo_log_tcpdump.h
 
-# Remove references from Makefiles
-sed -i '/spo_log_tcpdump/d' output-plugins/Makefile.am
-sed -i '/spo_log_tcpdump/d' output-plugins/Makefile.in
-sed -i '/spo_log_tcpdump/d' ../Makefile.in
+echo "[INFO] Removing NULL logging plugin..."
+sed -i 's/LogNullSetup();//g' plugbase.c
 
-# Fix plugbase references
+echo "[INFO] Removing tcpdump calls..."
 sed -i 's/LogTcpdumpSetup();//g' plugbase.c
 sed -i 's/LogTcpdumpReset();//g' snort.c
 
-# Remove NULL Logging plugin
-sed -i 's/LogNullSetup();//g' plugbase.c
-
-export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
-export LDFLAGS="-ltirpc"
-
 cd ..
 
-echo "[INFO] Regenerating Snort autotools..."
+echo "[INFO] Regenerating Snort build system..."
 autoreconf -fi || true
 
+echo "[INFO] Removing tcpdump references from ALL Makefiles..."
+find . -type f -name "Makefile*" -exec sed -i '/spo_log_tcpdump/d' {} \;
+
+cd src
+export CPPFLAGS="-I/usr/include/tirpc -DRPCAP_SUPPORT=0 -DPCAP_SUPPORT=0"
+export LDFLAGS="-ltirpc"
+cd ..
+
 # ------------------------------------------------------------
-# Step 5 – Build Snort (NO OpenAppID)
+# Step 5 – Build Snort
 # ------------------------------------------------------------
 echo
 echo "[5/6] Building Snort..."
@@ -147,14 +130,13 @@ echo "[5/6] Building Snort..."
 make -j$(nproc)
 make install
 
-echo "[INFO] Snort installed:"
-snort -V || { echo "[ERROR] Snort install failed!"; exit 1; }
+snort -V || { echo "[ERROR] Snort install FAILED!"; exit 1; }
 
 # ------------------------------------------------------------
-# Step 6 – Configure Snort folders + correlator
+# Step 6 – Snort config + correlator
 # ------------------------------------------------------------
 echo
-echo "[6/6] Setting up Snort & correlator..."
+echo "[6/6] Setting up Snort folders & correlator..."
 
 mkdir -p /etc/snort/rules
 mkdir -p /etc/snort/preproc_rules
@@ -170,7 +152,6 @@ chmod -R 5775 /etc/snort
 chmod -R 5775 /var/log/snort
 
 echo "[INFO] Installing correlator..."
-
 mkdir -p /opt/correlator
 if [ -d "$HOME/agent-installation/correlator" ]; then
     cp "$HOME/agent-installation/correlator/"*.py /opt/correlator/
